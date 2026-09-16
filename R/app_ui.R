@@ -1023,8 +1023,8 @@ app_ui <- function() {
                  HTML(
                    "<ul>
                       <li>The reference data used to build the models of the classical method were collected by <b>P. Bertran</b> throughout his career (e.g. Bertran and Lenoble 2002). P. Bertran provided us with all these data in order to feed the application.</li>
-                      <li><b>Pascal Bertran</b> PCI recommender and <b>Fr&eacute;d&eacute;ric Santos</b>, <b>Nicolas Frerebeau</b> and <b>Alfonso Benito-Calvo</b> reviewers of  '<a href=https://zenodo.org/records/15236695 target_blank> <b>fabryka: A web application for easily analysing & exploring the fabric of archaeological assemblages</b></a>' have helped to improve this application.</li>
-                   <li><b>S&eacute;bastien Plutniak</b> improved the code, added an API, and made the application interoperable with the <a href=https://analytics.huma-num.fr/archeoviz/en target=_blank><b>archeoViz</b></a> application.</li>
+                      <li><b>Pascal Bertran</b> PCI recommender and <b>Fr&eacute;d&eacute;ric Santos</b>, <b>Nicolas Frerebeau</b> and <b>Alfonso Benito-Calvo</b> reviewers of  '<a href=https://zenodo.org/records/15236695 target_blank><b>fabryka: A web application for easily analysing & exploring the fabric of archaeological assemblages</b></a>' have helped to improve this application.</li>
+                   <li><b>S&eacute;bastien Plutniak</b> improved the code, added an API, and made the application interoperable with the <a href=https://analytics.huma-num.fr/archeoviz/en target=_blank><b>archeoViz</b></a> and  <a href=https://analytics.huma-num.fr/archeofrag/ target=_blank><b>archeofrag</b></a> applications.</li>
                    </ul>"
                    ) #end HTML
                  ) #end column
