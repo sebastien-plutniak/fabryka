@@ -1,15 +1,10 @@
-# Load packages used in fabryka
-fabryka_packages = c("shiny","dplyr","ggplot2","plotly", "ggsci", "ggtern", "circular", "CircStats", "Ternary", "RStoolbox", "shinyjs", "rmarkdown", "shinythemes", "ggalt", "DT", "raster")
-is_installed = sapply(fabryka_packages, require, character.only=T)
-sapply(fabryka_packages[!is_installed], install.packages)
-
 # Modified function from circular package to perform Rao test
 #' @export
 print.rao.spacing.test.modified <- function(x, digits=4, ...) {
   U <- x$statistic
   alpha <- x$alpha
   n <- x$n
-  data(rao.table, package='circular', envir=sys.frame(which=sys.nframe()))
+  rao.table <- utils::data(rao.table, package='circular')
   if (n <= 30)
     table.row <- n - 3
   else if (n <= 32)

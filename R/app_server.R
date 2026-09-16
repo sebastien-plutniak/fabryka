@@ -1,22 +1,64 @@
 ### --- server ---
 app_server <- function(input, output, session) {
+  X1 <- NULL
+  plunge <- NULL
+  bearing <- NULL
+  Y1 <- NULL
+  Z1 <- NULL
+  Type <- NULL
+  Sample <- NULL
+  E1 <- NULL
+  E2 <- NULL
+  E3 <- NULL
+  r2 <- NULL
+  r1 <- NULL
+  isotropy <- NULL
+  elongation <- NULL
+  color_code <- NULL
+  ternary_model  <- NULL
   
   # increase file upload size limit in shiny to 50MB
   base::options(shiny.maxRequestSize = 350 * 1024^2)
   
-  # get the user data
+  # get user data ----
   user_data <- reactive({
-    req(!base::is.null(input$user_data))
+    # req(input$user_data)
     
-    inFile <- input$user_data
+    query <- shiny::parseQueryString(session$clientData$url_search)
     
-    if (input$decimal == ".") {
-      data <- utils::read.csv(inFile$datapath, sep = input$sep)
-    } else {
-      data <- utils::read.csv2(inFile$datapath, sep = input$sep)
-    }
-    base::return(data)
+    if ( ! is.null(query[['data']])) {
+      dataPath <- url(as.character(query[['data']]))
+    } else if( ! is.null(input$user_data)) {
+      dataPath <- input$user_data$datapath
+    } else {return()}
+    
+    utils::read.csv(dataPath, sep = input$sep, dec = input$decimal)
   })
+  
+  # data format selection ----
+  output$data.type.selector <- renderUI({
+    
+    data.types <- c(
+      "Case 1: Only angles",
+      "Case 2: Only angles from DistoX2",
+      "Case 3: Angles from DistoX2 with coordinates",
+      "Case 4: Angles and coordinates",
+      "Case 5: Two shots data without angles"
+    )
+    
+    query <- shiny::parseQueryString(session$clientData$url_search)
+    
+    data.type.selection <- 1
+    if ( ! is.null(query[['dataType']]))  data.type.selection <- as.numeric(query[['dataType']])
+    
+    radioButtons("data_type",
+                 label = strong("What form does your dataset take?"),
+                 choices = data.types,
+                 selected = data.types[data.type.selection],
+    )
+  })
+  
+  
   
   output$user_data_head <- renderTable(
     utils::head(user_data(), 1)
@@ -111,8 +153,8 @@ app_server <- function(input, output, session) {
   })
   
   clean_user_data <- reactive({
-    # req(input$user_data)
-
+    # req(user_data)
+    
     dataaa <- user_data()
     DataNew1 <- dataaa
     
@@ -147,7 +189,7 @@ app_server <- function(input, output, session) {
   # format the data to include all columns needed for the app in a reactive function
   
   app_data <- reactive({
-
+    
     if (input$data_type == "Case 1: Only angles") {
       clean_user_data() %>%
         dplyr::mutate(
@@ -268,20 +310,20 @@ app_server <- function(input, output, session) {
   # The user sees the data included in the reactive function app_data() and can download it
   output$app_data_view <- DT::renderDataTable({
     
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     DT::datatable(app_data(),
-    rownames = FALSE,
-    extensions = c("Buttons", "Scroller"),
-    options = list(
-      pageLength = base::nrow(app_data()),
-      # lengthMenu = c(5, 10, 15, 20),
-      buttons = c("csv", "pdf", "copy"),
-      dom = "Bfrtip",
-      scrollY = 250,
-      scrollX = 250
-      )
+                  rownames = FALSE,
+                  extensions = c("Buttons", "Scroller"),
+                  options = list(
+                    pageLength = base::nrow(app_data()),
+                    # lengthMenu = c(5, 10, 15, 20),
+                    buttons = c("csv", "pdf", "copy"),
+                    dom = "Bfrtip",
+                    scrollY = 250,
+                    scrollX = 250
+                  )
     )
   })
   
@@ -416,15 +458,15 @@ app_server <- function(input, output, session) {
   ### --- Classical method ---
   # User chooses levels to display
   output$sample_c <- renderUI({
-    req(input$user_data)
+    req(user_data)
     radioButtons("sample_c",
                  label = strong("Filter by sample"),
                  choices = base::unique(as.character(app_data()$sample)))
   })
-
+  
   # User chooses codes to display
   output$code_c <- renderUI({
-    req(input$user_data)
+    req(user_data)
     if (input$plot_all_samples_c) {
       app_data_temp <- app_data()
     } else {
@@ -438,16 +480,15 @@ app_server <- function(input, output, session) {
   
   # User chooses the model to display
   model_subset <- reactive({
-    ternary_model <- ternary_model %>%
-      dplyr::filter(Type %in% input$model)
+    ternary_model <- fabryka::ternary_model
+    ternary_model[which(ternary_model$Type  %in% input$model), ]
   })
   
   
   # get the data selected by the user (filter by sample and code)
   subset_code_sample_c <- reactive({
-    req(input$user_data)
-    req(input$data_type)
-    req(input$sample_c)
+    req(user_data, input$data_type, input$sample_c)
+    
     if (input$plot_all_samples_c & input$plot_all_codes_c) {
       data_sub <- app_data()
     } else if (input$plot_all_samples_c & !input$plot_all_codes_c) {
@@ -463,34 +504,11 @@ app_server <- function(input, output, session) {
   
   # calculating benn indices for the user subset data (from McPherron 2018, modified)
   benn_index_c <- reactive({
-    benn <- function(xyz, level = "All Points", min_sample = input$minimum_n) {
-      benn <- base::matrix(
-        nrow = base::length(base::unique(level)), ncol = 6,
-        dimnames = base::list(base::unique(level), base::c("N", "E1", "E2", "E3", "IS", "EL"))
-      )
-      
-      for (l in unique(level)) {
-        xyz_level <- base::subset(xyz, level == l)
-        
-        if (nrow(xyz_level) < min_sample) {
-          benn[l, ] <- base::c(nrow(xyz_level), base::rep(NA, 5))
-        } else {
-          # Normalize and compute eigen values
-          e <- eigen_values(vector_normals(xyz_level))
-          
-          # Compute shape indices for Benn Diagram
-          isotropy <- e$values[3] / e$values[1]
-          elongation <- 1 - (e$values[2] / e$values[1])
-          
-          benn[l, ] <- base::c(nrow(xyz_level), e$values[1], e$values[2], e$values[3], isotropy, elongation)
-        }
-      }
-      
-      return(benn)
-    }
-    
-    
-    benn_ind <- data.frame(benn(subset_code_sample_c(), level = subset_code_sample_c()$sample)) %>%
+    req(subset_code_sample_c)
+    benn_ind <- data.frame(benn(xyz = subset_code_sample_c(), 
+                                level = subset_code_sample_c()$sample,
+                                min_sample = input$minimum_n
+                                )) %>%
       dplyr::mutate(PL = 1 - IS - EL)
     benn_ind$Sample <- base::rownames(benn_ind)
     return(benn_ind)
@@ -498,17 +516,18 @@ app_server <- function(input, output, session) {
   
   # benn_plot function
   benn_plot <- reactive({
+    req(model_subset, benn_index_c)
     tern_model <- model_subset()
-    
+    browser()
     p <- ggtern::ggtern(tern_model, ggtern::aes(as.numeric(PL), as.numeric(IS), as.numeric(EL), alpha = 0.1)) +
       # geom_polygon(aes(fill = Type, group = area, alpha = 0.1)) +
-      ggalt::geom_encircle(aes(fill = Type, alpha = 0.1), s_shape = 0.6, expand = 0) +
+      # ggalt::geom_encircle(aes(fill = Type, alpha = 0.1), s_shape = 0.6, expand = 0) +
       ggsci::scale_fill_jco() +
       ggplot2::labs(title = "", fill = "Process", x = "", y = "IS", z = "EL") +
       ggplot2::theme(
-        tern.axis.line.T = element_line(color = "black", linewidth = 1),
-        tern.axis.line.L = element_line(color = "black", linewidth = 1),
-        tern.axis.line.R = element_line(color = "black", linewidth = 1)
+        tern.axis.line.T = ggplot2::element_line(color = "black", linewidth = 1),
+        tern.axis.line.L = ggplot2::element_line(color = "black", linewidth = 1),
+        tern.axis.line.R = ggplot2::element_line(color = "black", linewidth = 1)
       ) +
       ggtern::theme_bw() +
       ggplot2::guides(alpha = "none", size = 0.5) +
@@ -521,7 +540,8 @@ app_server <- function(input, output, session) {
     
     r <- p +
       ggplot2::geom_point(data = benn_index_c(), aes(PL, IS, EL, color = Sample), size = 2.1) +
-      ggplot2::scale_color_manual(values = c(
+      # TODO: the number  of color is limited and raises an error when lower than the nr of values
+      ggplot2::scale_color_manual(values = c( 
         "black",
         "#0073C2FF",
         "#EFC000FF",
@@ -545,7 +565,7 @@ app_server <- function(input, output, session) {
   
   # print the benn plot
   output$benn <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     base::print(benn_plot())
   })
@@ -570,13 +590,13 @@ app_server <- function(input, output, session) {
   
   # orientation rose diagram
   orientation_rose_c <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     d <- subset_code_sample_c()$orientation_pi + 180
     e <- base::c(subset_code_sample_c()$orientation_pi, d)
     f <- circular::circular(e,
-                  type = "angles", units = "degrees",
-                  template = "geographics", modulo = "2pi"
+                            type = "angles", units = "degrees",
+                            template = "geographics", modulo = "2pi"
     )
     i <- circular::rose.diag(f, bins = 18, axes = TRUE, prop = 2.1, col = "grey", border = "black", ticks = TRUE)
     grDevices::recordPlot()
@@ -584,23 +604,23 @@ app_server <- function(input, output, session) {
   
   # plot orientation_rose_c
   output$orientation_rose_c <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     base::print(orientation_rose_c())
   })
   
   # plunge rose diagram
   plunge_rose_c <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     k <- rose_diagram_plunge(subset_code_sample_c()$plunge, bins = 9, bar_col = "grey", cex = 0.7)
-    k <- k + coord_fixed(ratio = 1)
+    k <- k + ggplot2::coord_fixed(ratio = 1)
     grDevices::recordPlot()
   })
   
   # plot plunge_rose_c
   output$plunge_rose_c <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     base::print(plunge_rose_c())
   })
@@ -643,7 +663,7 @@ app_server <- function(input, output, session) {
   
   # schmidt diagram
   schmidt_diagram_c <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     l <- schmidt_diagram(subset_code_sample_c()$bearing,
                          subset_code_sample_c()$plunge,
@@ -653,7 +673,7 @@ app_server <- function(input, output, session) {
   
   # plot schmidt_diagram_c
   output$schmidt_diagram_c <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     base::print(schmidt_diagram_c())
   })
@@ -677,7 +697,7 @@ app_server <- function(input, output, session) {
   
   # Woodcock diagram
   woodcock_diagram <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     woodcock_data <- benn_index_c() %>%
@@ -709,7 +729,7 @@ app_server <- function(input, output, session) {
       ggplot2::annotate("text", x = 6.2, y = 0.1, label = "C = 6", color = "black", size = 3) +
       ggplot2::coord_fixed(ratio = 1) +
       ggplot2::theme_minimal() +
-      ggplot2::theme(panel.grid = element_blank()) +
+      ggplot2::theme(panel.grid = ggplot2::element_blank()) +
       ggplot2::labs(x = "r2 = ln(E2/E3)", y = "r1 = ln(E1/E2)") +
       ggplot2::scale_color_manual(values = c(
         "black",
@@ -730,13 +750,13 @@ app_server <- function(input, output, session) {
       ))
     
     base::return(w)
-      
+    
   })
   
   
   # plot woodcock_diagram
   output$woodcock_diagram_c <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     base::print(woodcock_diagram())
@@ -792,7 +812,7 @@ app_server <- function(input, output, session) {
         
         Rao_test <- base::withVisible(print.rao.spacing.test.modified(circular::rao.spacing.test(circular::circular(rad(data_level$bearing)), alpha = 0.05)))
         res <- Rao_test$value
-          
+        
         L <- base::round(R1$statistic * 100, 2)
         p <- base::round(R1$p.value, 2)
         L.double <- base::round(R2$statistic * 100, 2)
@@ -853,7 +873,7 @@ app_server <- function(input, output, session) {
   
   # User chooses levels to display
   output$sample_sm <- renderUI({
-    req(input$user_data)
+    req(user_data)
     radioButtons("sample_sm", 
                  label = strong("Filter by sample"), 
                  choices = base::unique(app_data()$sample))
@@ -861,7 +881,7 @@ app_server <- function(input, output, session) {
   
   # User chooses codes to display
   output$code_sm <- renderUI({
-    req(input$user_data)
+    req(user_data)
     # if(input$plot_all_samples_sm){
     #   app_data_temp <- app_data()
     # } else {
@@ -874,9 +894,10 @@ app_server <- function(input, output, session) {
   
   # get the data selected by the user (filter by sample and code)
   subset_code_sample_sm <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$sample_sm)
+    
     # if (input$plot_all_samples_sm & input$plot_all_codes_sm) {
     #   data_sub <- app_data()
     # } else if (input$plot_all_samples_sm & !input$plot_all_codes_sm) {
@@ -901,61 +922,9 @@ app_server <- function(input, output, session) {
   
   # calculating benn indices for the user subset data
   benn_index_sm <- reactive({
-    req(input$n_nearest_sm)
+    req(input$n_nearest_sm, subset_code_sample_sm())
     
-    benn <- function(xyz, level = "All Points", min_sample = input$n_nearest_sm) {
-      benn <- base::matrix(
-        nrow = base::length(base::unique(level)), ncol = 6,
-        dimnames = base::list(base::unique(level), base::c("N", "E1", "E2", "E3", "IS", "EL"))
-      )
-      
-      for (l in unique(level)) {
-        xyz_level <- base::subset(xyz, level == l)
-        
-        if (nrow(xyz_level) < min_sample) {
-          benn[l, ] <- base::c(base::nrow(xyz_level), base::rep(NA, 5))
-        } else {
-          # Normalize and compute eigen values
-          e <- eigen_values(vector_normals(xyz_level))
-          # Compute shape indices for Benn Diagram
-          isotropy <- e$values[3] / e$values[1]
-          elongation <- 1 - (e$values[2] / e$values[1])
-          benn[l, ] <- base::c(base::nrow(xyz_level), e$values[1], e$values[2], e$values[3], isotropy, elongation)
-        }
-      }
-      
-      base::return(benn)
-    }
-    
-    
-    spatial_benn <- function(xyz, nearest = input$n_nearest_sm, maximum_distance = NA) {
-      benn <- base::matrix(NA,
-                     nrow = base::nrow(xyz), ncol = 2,
-                     dimnames = base::list(base::rownames(xyz), base::c("elongation", "isotropy"))
-      )
-      
-      # For each artifact, get the nearest artifacts and compute Benn values
-      for (k in 1:nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        sorted_pos <- base::order(d)
-        if (!base::is.na(maximum_distance)) sorted_pos <- sorted_pos[d[sorted_pos] <= maximum_distance]
-        xyz_subsample <- xyz[sorted_pos[1:nearest], ]
-        benn[k, ] <- benn(xyz_subsample, min_sample = nearest)[, base::c("EL", "IS")]
-      }
-      
-      # Calculate where the points would fall on Benn diagram so colors can be assigned
-      b <- benn_coords(base::cbind(elongation = benn[, "elongation"], isotropy = benn[, "isotropy"]))
-      xp <- b[, 1]
-      yp <- b[, 2]
-      
-      base::return(list(benn))
-    }
-    
-    
-    benn_sm <- base::data.frame(spatial_benn(subset_code_sample_sm())) %>%
+    benn_sm <- base::data.frame(spatial_benn(subset_code_sample_sm(), nearest = input$n_nearest_se2)) %>%
       dplyr::mutate(PL = 1 - isotropy - elongation) %>%
       dplyr::rename(IS = isotropy) %>%
       dplyr::rename(EL = elongation)
@@ -965,7 +934,7 @@ app_server <- function(input, output, session) {
   
   # make a function to plot spatial benn ternary
   benn_sm_plot <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     data_to_plot <- benn_index_sm()
     
@@ -1002,8 +971,7 @@ app_server <- function(input, output, session) {
   
   # XY spatial projection with points
   projection_points_xy_sm <- reactive({
-    req(input$user_data)
-    req(input$data_type)
+    req(user_data, input$data_type,  benn_index_sm())
     
     data_to_plot_bis <- benn_index_sm()
     benn_rgb <- base::cbind(
@@ -1020,7 +988,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -1043,7 +1011,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -1063,7 +1031,7 @@ app_server <- function(input, output, session) {
   
   # XZ spatial projection with points
   projection_points_xz_sm <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- benn_index_sm()
@@ -1081,7 +1049,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -1104,7 +1072,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -1124,7 +1092,7 @@ app_server <- function(input, output, session) {
   
   # YZ spatial projection with points
   projection_points_yz_sm <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- benn_index_sm()
@@ -1142,7 +1110,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -1165,7 +1133,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -1185,7 +1153,7 @@ app_server <- function(input, output, session) {
   
   # XY spatial projection with sticks
   projection_sticks_xy_sm <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- benn_index_sm()
@@ -1207,7 +1175,7 @@ app_server <- function(input, output, session) {
           xend = subset_code_sample_sm()$X2,
           yend = subset_code_sample_sm()$Y2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -1234,7 +1202,7 @@ app_server <- function(input, output, session) {
           xend = subset_code_sample_sm()$X2,
           yend = subset_code_sample_sm()$Y2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -1254,7 +1222,7 @@ app_server <- function(input, output, session) {
   
   # XZ spatial projection with sticks
   projection_sticks_xz_sm <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- benn_index_sm()
@@ -1277,7 +1245,7 @@ app_server <- function(input, output, session) {
           xend = subset_code_sample_sm()$X2,
           yend = subset_code_sample_sm()$Z2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -1304,7 +1272,7 @@ app_server <- function(input, output, session) {
           xend = subset_code_sample_sm()$X2,
           yend = subset_code_sample_sm()$Z2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -1325,7 +1293,7 @@ app_server <- function(input, output, session) {
   
   # YZ spatial projection with sticks
   projection_sticks_yz_sm <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- benn_index_sm()
@@ -1348,7 +1316,7 @@ app_server <- function(input, output, session) {
           xend = subset_code_sample_sm()$Y2,
           yend = subset_code_sample_sm()$Z2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -1375,7 +1343,7 @@ app_server <- function(input, output, session) {
           xend = subset_code_sample_sm()$Y2,
           yend = subset_code_sample_sm()$Z2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -1397,7 +1365,7 @@ app_server <- function(input, output, session) {
   # xy plot with colored points or sticks
   output$projection_xy_sm <- renderPlot(
     {
-      req(input$user_data)
+      req(user_data)
       req(input$data_type)
       
       if (input$plot_type_sm) {
@@ -1413,7 +1381,7 @@ app_server <- function(input, output, session) {
   # xz plot with colored points or sticks
   output$projection_xz_sm <- renderPlot(
     {
-      req(input$user_data)
+      req(user_data)
       req(input$data_type)
       
       if (input$plot_type_sm) {
@@ -1429,7 +1397,7 @@ app_server <- function(input, output, session) {
   # yz plot with colored points or sticks
   output$projection_yz_sm <- renderPlot(
     {
-      req(input$user_data)
+      req(user_data)
       req(input$data_type)
       
       if (input$plot_type_sm) {
@@ -1531,58 +1499,13 @@ app_server <- function(input, output, session) {
   
   # summary data at series scale
   summary_data_sm <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
-    
-    spatial_bearing <- function(xyz, nearest = input$n_nearest_sm) {
-      # Make a place to hold the computed mean bearings of nearest neighbors
-      near_avg_bearing_p <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      near_avg_bearing_Rbar <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      
-      # Go through each artifact, get the nearest (default is 39), and compute mean bearing angle
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        xyz_subsample <- xyz[base::order(d)[1:nearest], ]
-        
-        # Get the mean bearing angle, test significance, and mean plunge angle of this subset of artifacts
-        near_avg_bearing_p[k] <- base::round(CircStats::r.test(2 * xyz_subsample$orientation_pi, degree = TRUE)$p.value, 2)
-        near_avg_bearing_Rbar[k] <- base::round(CircStats::r.test(2 * xyz_subsample$orientation_pi, degree = TRUE)$r.bar, 2)
-      }
-      
-      # Color coding based on average bearing and on average plunge (higher plunge angles are more less saturated - i.e. more white)
-      base::return(base::list(L = near_avg_bearing_Rbar * 100, R.p = near_avg_bearing_p))
-    }
-    
-    
-    spatial_bearing_double <- function(xyz, nearest = input$n_nearest_sm) {
-      # Make a place to hold the computed mean bearings of nearest neighbors
-      near_avg_bearing_p <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      near_avg_bearing_Rbar <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      
-      # Go through each artifact, get the nearest (default is 39), and compute mean bearing angle
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        xyz_subsample <- xyz[base::order(d)[1:nearest], ]
-        
-        # Get the mean bearing angle, test significance, and mean plunge angle of this subset of artifacts
-        near_avg_bearing_p[k] <- base::round(CircStats::r.test(2 * xyz_subsample$angle_double, degree = TRUE)$p.value, 2)
-        near_avg_bearing_Rbar[k] <- base::round(CircStats::r.test(2 * xyz_subsample$angle_double, degree = TRUE)$r.bar, 2)
-      }
-      
-      # Color coding based on average bearing and on average plunge (higher plunge angles are more less saturated - i.e. more white)
-      base::return(base::list(L.double = near_avg_bearing_Rbar * 100, R.p.double = near_avg_bearing_p))
-    }
     
     data <- subset_code_sample_sm()
     benn_indices <- base::round(benn_index_sm(), 2)
-    rayleigh_test <- base::data.frame(spatial_bearing(data))
-    rayleigh_double <- base::data.frame(spatial_bearing_double(data))
+    rayleigh_test <- base::data.frame(spatial_bearing(data, nearest = input$n_nearest_sm))
+    rayleigh_double <- base::data.frame(spatial_bearing_double(data, nearest = input$n_nearest_sm))
     
     summary_data <- base::cbind(data, benn_indices, rayleigh_test, rayleigh_double) %>%
       dplyr::mutate(dplyr::across(dplyr::where(is.numeric), \(x) base::round(x, 3)))
@@ -1609,7 +1532,7 @@ app_server <- function(input, output, session) {
   
   # summary data at sample scale
   summary_data2_sm <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data <- summary_data_sm()
@@ -1661,7 +1584,7 @@ app_server <- function(input, output, session) {
   
   # User chooses levels to display
   output$sample_se <- renderUI({
-    req(input$user_data)
+    req(user_data)
     radioButtons("sample_se", 
                  label = strong("Filter by sample"), 
                  choices = base::unique(app_data()$sample))
@@ -1669,7 +1592,7 @@ app_server <- function(input, output, session) {
   
   # User chooses codes to display
   output$code_se <- renderUI({
-    req(input$user_data)
+    req(user_data)
     if (input$plot_all_samples_se) {
       app_data_temp <- app_data()
     } else {
@@ -1682,7 +1605,7 @@ app_server <- function(input, output, session) {
   
   # get the data selected by the user (filter by sample and code)
   subset_code_sample_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$sample_se)
     if (input$plot_all_samples_se & input$plot_all_codes_se) {
@@ -1704,51 +1627,7 @@ app_server <- function(input, output, session) {
   benn_index_se <- reactive({
     req(input$n_nearest_se)
     
-    benn <- function(xyz, level = "All Points", min_sample = input$n_nearest_se) {
-      benn <- matrix(
-        nrow = base::length(base::unique(level)), ncol = 6,
-        dimnames = base::list(base::unique(level), base::c("N", "E1", "E2", "E3", "IS", "EL"))
-      )
-      for (l in base::unique(level)) {
-        xyz_level <- base::subset(xyz, level == l)
-        if (base::nrow(xyz_level) < min_sample) {
-          benn[l, ] <- base::c(base::nrow(xyz_level), base::rep(NA, 5))
-        } else {
-          # Normalize and compute eigen values
-          e <- eigen_values(vector_normals(xyz_level))
-          # Compute shape indices for Benn Diagram
-          isotropy <- e$values[3] / e$values[1]
-          elongation <- 1 - (e$values[2] / e$values[1])
-          benn[l, ] <- base::c(base::nrow(xyz_level), e$values[1], e$values[2], e$values[3], isotropy, elongation)
-        }
-      }
-      base::return(benn)
-    }
-    
-    spatial_benn <- function(xyz, nearest = input$n_nearest_se, maximum_distance = NA) {
-      benn <- base::matrix(NA,
-                     nrow = base::nrow(xyz), ncol = 2,
-                     dimnames = base::list(base::rownames(xyz), base::c("elongation", "isotropy"))
-      )
-      # For each artifact, get the nearest artifacts and compute Benn values
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        sorted_pos <- base::order(d)
-        if (!base::is.na(maximum_distance)) sorted_pos <- sorted_pos[d[sorted_pos] <= maximum_distance]
-        xyz_subsample <- xyz[sorted_pos[1:nearest], ]
-        benn[k, ] <- benn(xyz_subsample, min_sample = nearest)[, c("EL", "IS")]
-      }
-      # Calculate where the points would fall on Benn diagram so colors can be assigned
-      b <- benn_coords(cbind(elongation = benn[, "elongation"], isotropy = benn[, "isotropy"]))
-      xp <- b[, 1]
-      yp <- b[, 2]
-      base::return(base::list(benn))
-    }
-    
-    benn_se <- base::data.frame(spatial_benn(subset_code_sample_se())) %>%
+    benn_se <- base::data.frame(spatial_benn(subset_code_sample_se(), nearest = input$n_nearest_se2)) %>%
       dplyr::mutate(PL = 1 - isotropy - elongation) %>%
       dplyr::rename(IS = isotropy) %>%
       dplyr::rename(EL = elongation)
@@ -1767,7 +1646,7 @@ app_server <- function(input, output, session) {
       dplyr::select(color_code)
     colors_p <- stats::setNames(colors$color_code, data_to_plot$id)
     
-    fig <- plot_ly(
+    fig <- plotly::plot_ly(
       data = data_to_plot,
       a = ~IS, b = ~PL, c = ~EL,
       customdata = ~id,
@@ -1794,7 +1673,7 @@ app_server <- function(input, output, session) {
   })
   
   # plot the interactive ternary
-  output$interactive_ternary <- renderPlotly({
+  output$interactive_ternary <- plotly::renderPlotly({
     interactive_ternary_plot()
   })
   
@@ -1818,53 +1697,6 @@ app_server <- function(input, output, session) {
   
   # get in a reactive function the selected data
   selected_data <- reactive({
-    benn <- function(xyz, level = "All Points", min_sample = input$n_nearest_se2) {
-      benn <- base::matrix(
-        nrow = base::length(base::unique(level)), ncol = 6,
-        dimnames = base::list(base::unique(level), base::c("N", "E1", "E2", "E3", "IS", "EL"))
-      )
-      for (l in base::unique(level)) {
-        xyz_level <- base::subset(xyz, level == l)
-        if (base::nrow(xyz_level) < min_sample) {
-          benn[l, ] <- base::c(nrow(xyz_level), base::rep(NA, 5))
-        } else {
-          # Normalize and compute eigen values
-          e <- eigen_values(vector_normals(xyz_level))
-          # Compute shape indices for Benn Diagram
-          isotropy <- e$values[3] / e$values[1]
-          elongation <- 1 - (e$values[2] / e$values[1])
-          benn[l, ] <- base::c(base::nrow(xyz_level), e$values[1], e$values[2], e$values[3], isotropy, elongation)
-        }
-      }
-      return(benn)
-    }
-    
-    spatial_benn <- function(xyz, nearest = input$n_nearest_se2, maximum_distance = NA) {
-      benn <- base::matrix(NA,
-                     nrow = base::nrow(xyz), ncol = 2,
-                     dimnames = base::list(base::rownames(xyz), base::c("elongation", "isotropy"))
-      )
-      
-      # For each artifact, get the nearest artifacts and compute Benn values
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        sorted_pos <- base::order(d)
-        if (!base::is.na(maximum_distance)) sorted_pos <- sorted_pos[d[sorted_pos] <= maximum_distance]
-        xyz_subsample <- xyz[sorted_pos[1:nearest], ]
-        benn[k, ] <- benn(xyz_subsample, min_sample = nearest)[, base::c("EL", "IS")]
-      }
-      
-      # Calculate where the points would fall on Benn diagram so colors can be assigned
-      b <- benn_coords(base::cbind(elongation = benn[, "elongation"], isotropy = benn[, "isotropy"]))
-      xp <- b[, 1]
-      yp <- b[, 2]
-      
-      base::return(base::list(benn))
-    }
-    
     plotly_event_data <- plotly::event_data(event = "plotly_selected", priority = "event")
     req(plotly_event_data)
     
@@ -1873,7 +1705,7 @@ app_server <- function(input, output, session) {
     
     new_benn <- base::cbind(
       selected,
-      spatial_benn(selected)
+      spatial_benn(selected, nearest = input$n_nearest_se2)
     ) %>%
       dplyr::rename(EL = elongation) %>%
       dplyr::rename(IS = isotropy) %>%
@@ -1923,13 +1755,13 @@ app_server <- function(input, output, session) {
   
   # orientation rose diagram for selected data
   orientation_rose_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     d <- selected_data()$orientation_pi + 180
     e <- base::c(selected_data()$orientation_pi, d)
     f <- circular::circular(e,
-                  type = "angles", units = "degrees",
-                  template = "geographics", modulo = "2pi"
+                            type = "angles", units = "degrees",
+                            template = "geographics", modulo = "2pi"
     )
     i <- circular::rose.diag(f, bins = 18, axes = TRUE, prop = 2.1, col = "grey", border = "black", ticks = TRUE)
     grDevices::recordPlot()
@@ -1937,7 +1769,7 @@ app_server <- function(input, output, session) {
   
   # plot orientation_rose_se for selected data
   output$orientation_rose_selected <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     base::print(orientation_rose_se())
   })
@@ -1962,17 +1794,17 @@ app_server <- function(input, output, session) {
   
   # plunge rose diagram for selected data
   plunge_rose_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     k <- rose_diagram_plunge(selected_data()$plunge, bins = 9, bar_col = "grey", cex = 0.7)
-    k <- k + coord_fixed(ratio = 1)
+    k <- k + ggplot2::coord_fixed(ratio = 1)
     grDevices::recordPlot()
   })
   
   
   # plot plunge_rose_c for selected data
   output$plunge_rose_selected <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     base::print(plunge_rose_se())
   })
@@ -1998,7 +1830,7 @@ app_server <- function(input, output, session) {
   
   # schmidt diagram for selected data
   schmidt_diagram_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     l <- schmidt_diagram(selected_data()$bearing,
                          selected_data()$plunge,
@@ -2010,7 +1842,7 @@ app_server <- function(input, output, session) {
   
   # plot schmidt_diagram_c for selected data
   output$schmidt_selected <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     base::print(schmidt_diagram_se())
   })
@@ -2037,7 +1869,7 @@ app_server <- function(input, output, session) {
   
   # XY spatial projection with points
   projection_points_xy_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- selected_data()
@@ -2055,7 +1887,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -2078,7 +1910,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -2098,7 +1930,7 @@ app_server <- function(input, output, session) {
   
   # XZ spatial projection with points
   projection_points_xz_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- selected_data()
@@ -2116,7 +1948,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -2139,7 +1971,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -2159,7 +1991,7 @@ app_server <- function(input, output, session) {
   
   # YZ spatial projection with points
   projection_points_yz_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- selected_data()
@@ -2177,7 +2009,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -2200,7 +2032,7 @@ app_server <- function(input, output, session) {
         ggplot2::geom_point(
           shape = 21, col = "black",
           fill = grDevices::rgb(round(benn_rgb[, 1:3], 0),
-                     maxColorValue = 255
+                                maxColorValue = 255
           ),
           size = 2.3,
           stroke = 0.3
@@ -2220,7 +2052,7 @@ app_server <- function(input, output, session) {
   
   # XY spatial projection with sticks
   projection_sticks_xy_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- selected_data()
@@ -2242,7 +2074,7 @@ app_server <- function(input, output, session) {
           xend = selected_data()$X2,
           yend = selected_data()$Y2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -2269,7 +2101,7 @@ app_server <- function(input, output, session) {
           xend = selected_data()$X2,
           yend = selected_data()$Y2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -2289,7 +2121,7 @@ app_server <- function(input, output, session) {
   
   # XZ spatial projection with sticks
   projection_sticks_xz_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- selected_data()
@@ -2312,7 +2144,7 @@ app_server <- function(input, output, session) {
           xend = selected_data()$X2,
           yend = selected_data()$Z2,
           col = grDevices::rgb(base::round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -2339,7 +2171,7 @@ app_server <- function(input, output, session) {
           xend = selected_data()$X2,
           yend = selected_data()$Z2,
           col = grDevices::rgb(round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -2360,7 +2192,7 @@ app_server <- function(input, output, session) {
   
   # YZ spatial projection with sticks
   projection_sticks_yz_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data_to_plot_bis <- selected_data()
@@ -2383,7 +2215,7 @@ app_server <- function(input, output, session) {
           xend = selected_data()$Y2,
           yend = selected_data()$Z2,
           col = grDevices::rgb(round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -2410,7 +2242,7 @@ app_server <- function(input, output, session) {
           xend = selected_data()$Y2,
           yend = selected_data()$Z2,
           col = grDevices::rgb(round(benn_rgb[, 1:3], 0),
-                    maxColorValue = 255
+                               maxColorValue = 255
           ),
           linewidth = 1.5,
           linetype = "solid"
@@ -2432,7 +2264,7 @@ app_server <- function(input, output, session) {
   # xy plot with colored points or sticks
   output$projection_xy_selected_se <- renderPlot(
     {
-      req(input$user_data)
+      req(user_data)
       req(input$data_type)
       
       if (input$plot_type_se) {
@@ -2448,7 +2280,7 @@ app_server <- function(input, output, session) {
   # xz plot with colored points or sticks
   output$projection_xz_selected_se <- renderPlot(
     {
-      req(input$user_data)
+      req(user_data)
       req(input$data_type)
       
       if (input$plot_type_se) {
@@ -2464,7 +2296,7 @@ app_server <- function(input, output, session) {
   # yz plot with colored points or sticks
   output$projection_yz_selected_se <- renderPlot(
     {
-      req(input$user_data)
+      req(user_data)
       req(input$data_type)
       
       if (input$plot_type_se) {
@@ -2552,57 +2384,12 @@ app_server <- function(input, output, session) {
   
   # get selected data and add rayleigh tests
   summary_selected_data <- reactive({
-    spatial_bearing <- function(xyz, nearest = input$n_nearest_se2) {
-      # Make a place to hold the computed mean bearings of nearest neighbors
-      near_avg_bearing_p <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      near_avg_bearing_Rbar <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      
-      # Go through each artifact, get the nearest (default is 39), and compute mean bearing angle
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        xyz_subsample <- xyz[order(d)[1:nearest], ]
-        
-        # Get the mean bearing angle, test significance, and mean plunge angle of this subset of artifacts
-        near_avg_bearing_p[k] <- base::round(CircStats::r.test(2 * xyz_subsample$orientation_pi, degree = TRUE)$p.value, 2)
-        near_avg_bearing_Rbar[k] <- base::round(CircStats::r.test(2 * xyz_subsample$orientation_pi, degree = TRUE)$r.bar, 2)
-      }
-      
-      # Color coding based on average bearing and on average plunge (higher plunge angles are more less saturated - i.e. more white)
-      base::return(base::list(L = near_avg_bearing_Rbar * 100, R.p = near_avg_bearing_p))
-    }
-    
-    
-    spatial_bearing_double <- function(xyz, nearest = input$n_nearest_se2) {
-      # Make a place to hold the computed mean bearings of nearest neighbors
-      near_avg_bearing_p <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      near_avg_bearing_Rbar <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      
-      # Go through each artifact, get the nearest (default is 39), and compute mean bearing angle
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        xyz_subsample <- xyz[order(d)[1:nearest], ]
-        
-        # Get the mean bearing angle, test significance, and mean plunge angle of this subset of artifacts
-        near_avg_bearing_p[k] <- base::round(CircStats::r.test(2 * xyz_subsample$angle_double, degree = TRUE)$p.value, 2)
-        near_avg_bearing_Rbar[k] <- base::round(CircStats::r.test(2 * xyz_subsample$angle_double, degree = TRUE)$r.bar, 2)
-      }
-      
-      # Color coding based on average bearing and on average plunge (higher plunge angles are more less saturated - i.e. more white)
-      base::return(base::list(L.double = near_avg_bearing_Rbar * 100, R.p.double = near_avg_bearing_p))
-    }
-    
     # plotly_event_data <- event_data(event = 'plotly_selected', priority = "event")
     # req(plotly_event_data)
     selected <- selected_data() # dplyr::filter(benn_index_se(), id %in% plotly_event_data$customdata)
     
-    rayleigh_test <- base::round(base::data.frame(spatial_bearing(selected)), 2)
-    rayleigh_double <- base::round(base::data.frame(spatial_bearing_double(selected)), 2)
+    rayleigh_test <- base::round(base::data.frame(spatial_bearing(selected, nearest = input$n_nearest_sm)), 2)
+    rayleigh_double <- base::round(base::data.frame(spatial_bearing_double(selected, nearest = input$n_nearest_sm)), 2)
     
     summary_data <- base::cbind(selected, rayleigh_test, rayleigh_double) %>%
       dplyr::mutate(dplyr::across(dplyr::where(is.numeric), \(x) base::round(x, 3)))
@@ -2614,7 +2401,7 @@ app_server <- function(input, output, session) {
   
   # summary data at sample scale
   summary_sample_se <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     
     data <- summary_selected_data()
@@ -2733,53 +2520,6 @@ app_server <- function(input, output, session) {
   # get in a reactive function the selected data
   selected_data2 <- reactive({
     
-    benn <- function(xyz, level = "All Points", min_sample = input$n_nearest_se2) {
-      benn <- base::matrix(
-        nrow = base::length(base::unique(level)), ncol = 6,
-        dimnames = base::list(base::unique(level), base::c("N", "E1", "E2", "E3", "IS", "EL"))
-      )
-      for (l in base::unique(level)) {
-        xyz_level <- subset(xyz, level == l)
-        if (nrow(xyz_level) < min_sample) {
-          benn[l, ] <- base::c(nrow(xyz_level), rep(NA, 5))
-        } else {
-          # Normalize and compute eigen values
-          e <- eigen_values(vector_normals(xyz_level))
-          # Compute shape indices for Benn Diagram
-          isotropy <- e$values[3] / e$values[1]
-          elongation <- 1 - (e$values[2] / e$values[1])
-          benn[l, ] <- c(nrow(xyz_level), e$values[1], e$values[2], e$values[3], isotropy, elongation)
-        }
-      }
-      base::return(benn)
-    }
-    
-    spatial_benn <- function(xyz, nearest = input$n_nearest_se2, maximum_distance = NA) {
-      benn <- base::matrix(NA,
-                     nrow = base::nrow(xyz), ncol = 2,
-                     dimnames = base::list(base::rownames(xyz), c("elongation", "isotropy"))
-      )
-      
-      # For each artifact, get the nearest artifacts and compute Benn values
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        sorted_pos <- order(d)
-        if (!base::is.na(maximum_distance)) sorted_pos <- sorted_pos[d[sorted_pos] <= maximum_distance]
-        xyz_subsample <- xyz[sorted_pos[1:nearest], ]
-        benn[k, ] <- benn(xyz_subsample, min_sample = nearest)[, base::c("EL", "IS")]
-      }
-      
-      # Calculate where the points would fall on Benn diagram so colors can be assigned
-      b <- benn_coords(cbind(elongation = benn[, "elongation"], isotropy = benn[, "isotropy"]))
-      xp <- b[, 1]
-      yp <- b[, 2]
-      
-      base::return(base::list(benn))
-    }
-    
     # plotly_event_data <- event_data(event = "plotly_selected", priority = "event")
     # req(plotly_event_data)
     
@@ -2791,7 +2531,7 @@ app_server <- function(input, output, session) {
     
     new_benn <- base::cbind(
       selected,
-      spatial_benn(selected)
+      spatial_benn(selected, nearest = input$n_nearest_se2)
     ) %>%
       dplyr::rename(EL = elongation) %>%
       dplyr::rename(IS = isotropy) %>%
@@ -2845,14 +2585,14 @@ app_server <- function(input, output, session) {
   
   # orientation rose diagram for selected data
   orientation_rose_se2 <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$plot1_brush)
     d <- selected_data2()$orientation_pi + 180
     e <- base::c(selected_data2()$orientation_pi, d)
     f <- circular::circular(e,
-                  type = "angles", units = "degrees",
-                  template = "geographics", modulo = "2pi"
+                            type = "angles", units = "degrees",
+                            template = "geographics", modulo = "2pi"
     )
     i <- circular::rose.diag(f, bins = 18, axes = TRUE, prop = 2.1, col = "grey", border = "black", ticks = TRUE)
     grDevices::recordPlot()
@@ -2860,7 +2600,7 @@ app_server <- function(input, output, session) {
   
   # plot orientation_rose_se for selected data
   output$orientation_rose_selected2 <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$plot1_brush)
     base::print(orientation_rose_se2())
@@ -2888,18 +2628,18 @@ app_server <- function(input, output, session) {
   
   # plunge rose diagram for selected data
   plunge_rose_se2 <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$plot1_brush)
     k <- rose_diagram_plunge(selected_data2()$plunge, bins = 9, bar_col = "grey", cex = 0.7)
-    k <- k + coord_fixed(ratio = 1)
+    k <- k + ggplot2::coord_fixed(ratio = 1)
     grDevices::recordPlot()
   })
   
   
   # plot plunge_rose_c for selected data
   output$plunge_rose_selected2 <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$plot1_brush)
     base::print(plunge_rose_se2())
@@ -2927,7 +2667,7 @@ app_server <- function(input, output, session) {
   
   # schmidt diagram for selected data
   schmidt_diagram_se2 <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$plot1_brush)
     l <- schmidt_diagram(selected_data2()$bearing,
@@ -2940,7 +2680,7 @@ app_server <- function(input, output, session) {
   
   # plot Schmidt diagram for selected data
   output$schmidt_selected2 <- renderPlot({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$plot1_brush)
     base::print(schmidt_diagram_se2())
@@ -2969,55 +2709,11 @@ app_server <- function(input, output, session) {
   # get selected data and add rayleigh tests
   summary_selected_data2 <- reactive({
     req(input$plot1_brush)
-    spatial_bearing <- function(xyz, nearest = input$n_nearest_se2) {
-      # Make a place to hold the computed mean bearings of nearest neighbors
-      near_avg_bearing_p <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      near_avg_bearing_Rbar <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      
-      # Go through each artifact, get the nearest (default is 39), and compute mean bearing angle
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        xyz_subsample <- xyz[base::order(d)[1:nearest], ]
-        
-        # Get the mean bearing angle, test significance, and mean plunge angle of this subset of artifacts
-        near_avg_bearing_p[k] <- base::round(CircStats::r.test(2 * xyz_subsample$orientation_pi, degree = TRUE)$p.value, 2)
-        near_avg_bearing_Rbar[k] <- base::round(CircStats::r.test(2 * xyz_subsample$orientation_pi, degree = TRUE)$r.bar, 2)
-      }
-      
-      # Color coding based on average bearing and on average plunge (higher plunge angles are more less saturated - i.e. more white)
-      base::return(base::list(L = near_avg_bearing_Rbar * 100, R.p = near_avg_bearing_p))
-    }
-    
-    
-    spatial_bearing_double <- function(xyz, nearest = input$n_nearest_se2) {
-      # Make a place to hold the computed mean bearings of nearest neighbors
-      near_avg_bearing_p <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      near_avg_bearing_Rbar <- base::vector(mode = "numeric", length = base::nrow(xyz))
-      
-      # Go through each artifact, get the nearest (default is 39), and compute mean bearing angle
-      for (k in 1:base::nrow(xyz)) {
-        centerx <- xyz$X1[k]
-        centery <- xyz$Y1[k]
-        centerz <- xyz$Z1[k]
-        d <- base::sqrt((centerx - xyz$X1)^2 + (centery - xyz$Y1)^2 + (centerz - xyz$Z1)^2)
-        xyz_subsample <- xyz[base::order(d)[1:nearest], ]
-        
-        # Get the mean bearing angle, test significance, and mean plunge angle of this subset of artifacts
-        near_avg_bearing_p[k] <- base::round(CircStats::r.test(2 * xyz_subsample$angle_double, degree = TRUE)$p.value, 2)
-        near_avg_bearing_Rbar[k] <- base::round(CircStats::r.test(2 * xyz_subsample$angle_double, degree = TRUE)$r.bar, 2)
-      }
-      
-      # Color coding based on average bearing and on average plunge (higher plunge angles are more less saturated - i.e. more white)
-      base::return(base::list(L.double = near_avg_bearing_Rbar * 100, R.p.double = near_avg_bearing_p))
-    }
     
     selected <- selected_data2() # dplyr::filter(benn_index_se(), id %in% plotly_event_data$customdata)
     
-    rayleigh_test <- base::round(base::data.frame(spatial_bearing(selected)), 2)
-    rayleigh_double <- base::round(base::data.frame(spatial_bearing_double(selected)), 2)
+    rayleigh_test <- base::round(base::data.frame(spatial_bearing(selected, nearest = input$n_nearest_sm)), 2)
+    rayleigh_double <- base::round(base::data.frame(spatial_bearing_double(selected, nearest = input$n_nearest_sm)), 2)
     
     summary_data <- base::cbind(selected, rayleigh_test, rayleigh_double) %>%
       dplyr::mutate(dplyr::across(dplyr::where(is.numeric), \(x) base::round(x, 3)))
@@ -3028,7 +2724,7 @@ app_server <- function(input, output, session) {
   
   # summary data at sample scale
   summary_sample_se2 <- reactive({
-    req(input$user_data)
+    req(user_data)
     req(input$data_type)
     req(input$plot1_brush)
     
@@ -3085,9 +2781,9 @@ app_server <- function(input, output, session) {
     # For PDF output, change this to "report.pdf"
     filename = function() {
       base::paste("report", sep = ".", switch(input$format,
-                                        PDF = "pdf",
-                                        HTML = "html",
-                                        Word = "docx"
+                                              PDF = "pdf",
+                                              HTML = "html",
+                                              Word = "docx"
       ))
     },
     content = function(file) {

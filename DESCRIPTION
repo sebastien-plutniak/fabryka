@@ -1,27 +1,31 @@
 Package: fabryka
-Title: Fabric analysis of archaeological assemblages
-Version: 1.1
+Title: Fabric Analysis of Archaeological Assemblages
+Version: 1.1.1
+Date: 2026-09-16
 Authors@R: 
-    person("Marc", "Thomas", , "marcthomas1@hotmail.fr", role = c("aut", "cre"))
+    c(
+    person("Marc", "Thomas", email = "marcthomas1@hotmail.fr", role = c("aut", "cre")),
+    person("Sebastien", "Plutniak", email = "sebastien.plutniak@posteo.net", role = c("ctb"), comment = c(ORCID = "0000-0002-6674-3806"))
+    )
 Description: fabryka is an R Shiny application dedicated to the fabric analysis (orientation and dip of objects) of archaeological assemblages.
-License: MIT + file LICENSE
+License: MIT + file LICENCE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Depends: 
-    R (>= 3.5)
+    R (>= 4.1.0)
 LazyData: true
 Imports: 
     CircStats,
     circular,
     dplyr,
     DT,
-    ggalt,
     ggplot2,
     ggsci,
     ggtern,
     plotly,
     raster,
+    magrittr,
     rmarkdown,
     RStoolbox,
     shiny,

@@ -1,6 +1,6 @@
 ---
 title: "fabryka"
-Version: 1.1
+Version: 1.1.1
 Author: Marc THOMAS [aut, cre] 
 output:
   github_document
@@ -13,6 +13,21 @@ output:
 ## README
 
 fabryka is an open access R *shiny* user-friendly web application dedicated to the fabric analysis of archaeological or geological assemblage. fabryka uses classical analytical procedures (Benn, rose, Schmidt and Woodcock diagrams and statistical tests on orientations) for analysing the fabrics of objects, an spatial method and new ways of spatial and statistical exploration. A descriptive article is available at <https://zenodo.org/records/16601423>.
+
+## Modified version
+
+Note: This is a modified version of the fabryka R package. Changes include:
+
+
+### fabryka v1.1.1
+
+* Create an API. input data can be read through URL with the variables:
+    * data=
+    * dataFormat=
+* Clean dependencies and name space declarations.
+* Clean functions naming format.
+* Remove dependencies to (unmaintained) package 'ggalt'
+* Format for package publication on the CRAN.
 
 ## USE fabryka
 

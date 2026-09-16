@@ -201,7 +201,6 @@ usethis::use_package("RStoolbox")
 usethis::use_package("shinyjs")
 usethis::use_package("rmarkdown")
 usethis::use_package("shinythemes")
-usethis::use_package("ggalt")
 usethis::use_package("DT")
 usethis::use_package("raster")
 ```
