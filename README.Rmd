@@ -47,7 +47,6 @@ To launch the application, execute:
 ```{r run_app, eval=FALSE}
 library(fabryka)
 fabryka()
-
 ```
 
 This can be useful if you want to use fabryka in the field without an internet access.
