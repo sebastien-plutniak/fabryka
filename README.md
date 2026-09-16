@@ -15,6 +15,22 @@ analysing the fabrics of objects, an spatial method and new ways of
 spatial and statistical exploration. A descriptive article is available
 at <https://zenodo.org/records/16601423>.
 
+## Modified version
+
+Note: This is a modified version of the fabryka R package. Changes
+include:
+
+### fabryka v1.1.1
+
+  - Create an API. input data can be read through URL with the
+    variables:
+      - data=
+      - dataFormat=
+  - Clean dependencies and name space declarations.
+  - Clean functions naming format.
+  - Remove dependencies to (unmaintained) package ‘ggalt’
+  - Format for package publication on the CRAN.
+
 ## USE fabryka
 
 The web application is available online at
@@ -22,22 +38,24 @@ The web application is available online at
 
 You can also use fabryka in RStudio. To do so :
 
-- Install [R](https://www.r-project.org) and [Rstudio
-  Desktop](https://posit.co/download/rstudio-desktop/).
+  - Install [R](https://www.r-project.org) and [Rstudio
+    Desktop](https://posit.co/download/rstudio-desktop/).
 
-- clone the fabryka repository from GitHub:
-  <https://github.com/marchaeologist/fabryka> or download the code in
-  “Code” and “Download ZIP” at the same address. Unzip the folder. This
-  will give you the latest version of the source code.
+  - clone the fabryka repository from GitHub:
+    <https://github.com/marchaeologist/fabryka> or download the code in
+    “Code” and “Download ZIP” at the same address. Unzip the folder.
+    This will give you the latest version of the source code.
 
-- Open fabryka.Rproj
+  - Open fabryka.Rproj
 
-- If you are using the application for the first time, you have to
-  install several packages used in the application. Lists of all these
-  packages and dependencies are available in a DESCRIPTION file and a
-  DEPENDECIES file in the github repository. To install fabryka packages
-  and dependencies, copy and paste the following code lines into the R
-  console:
+  - If you are using the application for the first time, you have to
+    install several packages used in the application. Lists of all these
+    packages and dependencies are available in a DESCRIPTION file and a
+    DEPENDECIES file in the github repository. To install fabryka
+    packages and dependencies, copy and paste the following code lines
+    into the R console:
+
+<!-- end list -->
 
 ``` r
 fabryka_packages = c("shiny", "dplyr","ggplot2","plotly", "ggsci", "ggtern", "circular", "CircStats", "Ternary", 
@@ -75,7 +93,7 @@ versions of the application archived there.
 
 ## TUTORIAL AND EXAMPLE DATASET
 
-A tutorial is included in the application (*i.e.* ‘Tutorial” panel) and
+A tutorial is included in the application (*i.e.* ‘Tutorial" panel) and
 can also be found in a dedicated article:
 <https://zenodo.org/records/16601423>. ’fabryka’ includes an example
 file you can download from the application (‘Upload data’ subpanel).

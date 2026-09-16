@@ -27,7 +27,7 @@ Note: This is a modified version of the fabryka R package. Changes include:
 * Clean dependencies and name space declarations.
 * Clean functions naming format.
 * Remove dependencies to (unmaintained) package 'ggalt'
-* Format for package publication on the CRAN.
+* Required modifications for package publication on the CRAN.
 
 ## USE fabryka
 
