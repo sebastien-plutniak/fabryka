@@ -153,10 +153,9 @@ app_server <- function(input, output, session) {
   })
   
   clean_user_data <- reactive({
-    # req(user_data)
+    DataNew1 <- user_data()
     
-    dataaa <- user_data()
-    DataNew1 <- dataaa
+    if(is.null(DataNew1)) return()
     
     id <- base::as.character(input$id)
     code <- base::as.factor(input$code)
@@ -189,6 +188,9 @@ app_server <- function(input, output, session) {
   # format the data to include all columns needed for the app in a reactive function
   
   app_data <- reactive({
+    req(clean_user_data, input$data_type)
+    
+    if(is.null(clean_user_data())) return()
     
     if (input$data_type == "Case 1: Only angles") {
       clean_user_data() %>%
@@ -310,8 +312,7 @@ app_server <- function(input, output, session) {
   # The user sees the data included in the reactive function app_data() and can download it
   output$app_data_view <- DT::renderDataTable({
     
-    req(user_data)
-    req(input$data_type)
+    req(user_data, app_data, input$data_type)
     
     DT::datatable(app_data(),
                   rownames = FALSE,
@@ -518,7 +519,7 @@ app_server <- function(input, output, session) {
   benn_plot <- reactive({
     req(model_subset, benn_index_c)
     tern_model <- model_subset()
-    browser()
+    
     p <- ggtern::ggtern(tern_model, ggtern::aes(as.numeric(PL), as.numeric(IS), as.numeric(EL), alpha = 0.1)) +
       # geom_polygon(aes(fill = Type, group = area, alpha = 0.1)) +
       # ggalt::geom_encircle(aes(fill = Type, alpha = 0.1), s_shape = 0.6, expand = 0) +
